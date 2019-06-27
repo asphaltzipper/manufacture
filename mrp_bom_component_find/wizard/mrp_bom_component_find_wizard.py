@@ -35,6 +35,7 @@ class MrpBomComponentFindWizard(models.TransientModel):
                 'wizard_id': wizard_id,
                 'level': level_txt,
                 'component_id': component_id,
+                'parent_id': compose_id,
                 'line': row[0],
                 'quantity': row[2],
                 'mrp_bom_id': row[4],
@@ -50,7 +51,7 @@ class MrpBomComponentFindWizard(models.TransientModel):
         return {
             'name': "Component find %s " % obj.product_id.name,
             'view_mode': 'tree,form',
-            'view_type': 'form',
+            'view_type': 'tree',
             'res_model': 'mrp.bom.component.find.line',
             'type': 'ir.actions.act_window',
             'domain': [('wizard_id', '=', obj.id)],
@@ -63,7 +64,20 @@ class MrpBomComponentFindLine(models.TransientModel):
     wizard_id = fields.Many2one('mrp.bom.component.find.wizard', 'Wizard')
     level = fields.Char('Level')
     component_id = fields.Many2one('product.product', 'Component')
+    parent_id = fields.Many2one('product.product', 'Component')
     line = fields.Integer('Line')
     quantity = fields.Float(
         'Quantity', digits=dp.get_precision('Product Unit of Measure'))
     mrp_bom_id = fields.Many2one('mrp.bom', 'Product')
+    parent_ids = fields.One2many(
+        comodel_name='mrp.bom.component.find.line',
+        compute='_compute_parent_ids')
+
+    def _compute_parent_ids(self):
+        for obj in self:
+            domain = [
+                ('wizard_id', '=', obj.wizard_id.id),
+                ('component_id', '=', obj.parent_id.id),
+            ]
+            obj.parent_ids = obj.search(domain)
+
