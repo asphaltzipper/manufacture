@@ -11,42 +11,69 @@ class MrpBomComponentFindWizard(models.TransientModel):
 
     @api.multi
     def mrp_bom_component_find(self, wizard_id, component_id, level):
+
         cr = self._cr
         cr.execute("""
+            select comp_id, product_qty, product_tmpl_id, mb_id, parent_id from (
+            with recursive clean_bom (parent_prod_id, comp_prod_id, product_tmpl_id, mb_id,
+            product_qty) as (
             select
-                mbl.sequence,
-                mbl.product_id,
-                mbl.product_qty,
-                mb.product_tmpl_id,
-                mb.id mb_id,
-                (select id from product_product
-                 where product_tmpl_id=mb.product_tmpl_id limit 1) compose_id
-            from mrp_bom_line mbl inner join mrp_bom mb on mbl.bom_id=mb.id
-            where mbl.product_id=%s
-        """, (str(component_id),))
+                b.product_id as parent_prod_id,
+                l.product_id as comp_prod_id,
+                b.product_tmpl_id as product_tmpl_id,
+                b.id as mb_id,
+                l.product_qty
+            from mrp_bom_line as l
+            inner join mrp_bom as b on b.id=l.bom_id
+            ),
+            bom_struct(comp_id, parent_id,  product_tmpl_id, mb_id, product_qty) as (
+            select
+                b.comp_prod_id,
+                b.parent_prod_id,
+                b.product_tmpl_id,
+                b.mb_id, 
+                b.product_qty
+            from clean_bom as b
+            where b.comp_prod_id=%s
+            union
+                select
+                    b.comp_prod_id,
+                    b.parent_prod_id,
+                    b.product_tmpl_id,
+                    b.mb_id,
+                    b.product_qty
+             from clean_bom as b
+             inner join bom_struct as c on c.parent_id=b.comp_prod_id
+            )
+            select
+                p.comp_id,
+                p.parent_id,
+                b.product_qty,
+                b.mb_id,
+                b.product_tmpl_id
+            from bom_struct as p
+            left join clean_bom as b on b.parent_prod_id=p.parent_id and 
+            b.comp_prod_id=p.comp_id
+            order by p.comp_id, p.parent_id
+            ) as t """, (str(component_id),))
+
         result = cr.fetchall()
         for row in result:
-            compose_id = row[5]
-            level_txt = ''
-            for i in range(1, level):
-                level_txt = level_txt + u'-'
-            level_txt = level_txt + str(level)
+            compose_id = row[4]
             vals = {
-                'wizard_id': wizard_id,
-                'level': level_txt,
-                'component_id': component_id,
-                'parent_id': compose_id,
-                'line': row[0],
-                'quantity': row[2],
-                'mrp_bom_id': row[4],
+                    'wizard_id': wizard_id,
+                    'component_id': row[0],
+                    'parent_id': compose_id,
+                    'quantity': row[1],
+                    'mrp_bom_id': row[3],
             }
             self.env['mrp.bom.component.find.line'].create(vals)
-            self.mrp_bom_component_find(wizard_id, compose_id, level + 1)
 
     @api.multi
     def do_search_component(self):
         for obj in self:
             if obj.product_id:
+                # pdb.set_trace()
                 self.mrp_bom_component_find(obj.id, obj.product_id.id, 1)
         return {
             'name': "Component find %s " % obj.product_id.name,
@@ -54,7 +81,8 @@ class MrpBomComponentFindWizard(models.TransientModel):
             'view_type': 'tree',
             'res_model': 'mrp.bom.component.find.line',
             'type': 'ir.actions.act_window',
-            'domain': [('wizard_id', '=', obj.id)],
+            'domain': [('wizard_id', '=', obj.id),
+                       ('component_id', '=', obj.product_id.id)],
         }
 
 
@@ -80,4 +108,3 @@ class MrpBomComponentFindLine(models.TransientModel):
                 ('component_id', '=', obj.parent_id.id),
             ]
             obj.parent_ids = obj.search(domain)
-
