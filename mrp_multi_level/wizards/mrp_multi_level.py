@@ -276,36 +276,117 @@ class MultiLevelMrp(models.TransientModel):
         logger.info('End MRP Cleanup')
         return True
 
+    def _bom_loop_check(self):
+        logger.info('Start BoM loop check')
+
+        self.env.cr.execute("""
+            with recursive adjacency as (
+                -- This auxiliary statement is not recursive, but the recursive
+                -- keyword must be placed on the first auxiliary statement.
+                -- Here, we get a parent-child adjacency list using product id.
+                -- If only template is specified on mrp.bom, the list is
+                -- expanded with all variants.
+                SELECT DISTINCT
+                    COALESCE(b.product_id,p.id) AS parent_id,
+                    l.product_id AS comp_id
+                FROM mrp_bom_line AS l, mrp_bom AS b, product_product AS p
+                WHERE b.product_tmpl_id=p.product_tmpl_id
+                AND l.bom_id=b.id
+            ),
+            stack (parent_id, comp_id, path, looped) as (
+                -- This auxiliary statement is recursive, as indicated by
+                -- the UNION keyword.
+                SELECT
+                    a.parent_id,
+                    a.comp_id,
+                    ARRAY[a.comp_id] as path,
+                    false as looped
+                FROM adjacency as a
+                UNION ALL
+                SELECT
+                    a.parent_id,
+                    a.comp_id,
+                    path || a.comp_id as path,
+                    a.comp_id = ANY(path) as looped
+                FROM stack AS s, adjacency as a
+                WHERE a.parent_id=s.comp_id
+                AND NOT s.looped
+            )
+            select
+                s.parent_id,
+                s.comp_id,
+                s.path
+            from stack as s
+            where s.looped
+        """)
+
+        prod_obj = self.env['product.product']
+        loop_sets = []
+        loop_names = []
+        for data in self.env.cr.fetchall():
+            if set(data[2]) in loop_sets:
+                # keep loops unique, regardless of order
+                continue
+            loop_sets.append(set(data[2]))
+            prod_names = [prod_obj.browse(pid).display_name for pid in data[2]]
+            name = " ==>> ".join(prod_names)
+            loop_names.append(name)
+        if len(loop_names):
+            for loop in loop_names:
+                logger.error("Found loop in BOM: %s" % loop)
+            raise exceptions.UserError(
+                _("BoM loops were detected:\n%s" % "\n".join(loop_names)))
+        logger.info("End BoM loop check")
+
     @api.model
     def _low_level_code_calculation(self):
+        self._bom_loop_check()
         logger.info('Start low level code calculation')
-        counter = 999999
-        llc = 0
-        self.env['product.product'].search([]).write({'llc': llc})
-        products = self.env['product.product'].search([('llc', '=', llc)])
-        if products:
-            counter = len(products)
-        log_msg = 'Low level code 0 finished - Nbr. products: %s' % counter
-        logger.info(log_msg)
 
-        while counter:
-            llc += 1
-            products = self.env['product.product'].search(
-                [('llc', '=', llc - 1)])
-            p_templates = products.mapped('product_tmpl_id')
-            bom_lines = self.env['mrp.bom.line'].search(
-                [('product_id.llc', '=', llc - 1),
-                 ('bom_id.product_tmpl_id', 'in', p_templates.ids)])
-            products = bom_lines.mapped('product_id')
-            products.write({'llc': llc})
-            products = self.env['product.product'].search([('llc', '=', llc)])
-            counter = len(products)
-            log_msg = 'Low level code %s finished - Nbr. products: %s' % (
-                llc, counter)
-            logger.info(log_msg)
+        self.env.cr.execute("""
+            UPDATE product_product SET llc=t.llc
+            FROM (
+                WITH RECURSIVE j AS (
+                    -- get parent-child adjacency list using product id
+                    SELECT DISTINCT
+                        COALESCE(b.product_id,p.id) AS parent_id,
+                        l.product_id AS comp_id
+                    FROM mrp_bom_line AS l, mrp_bom AS b, product_product AS p
+                    WHERE b.product_tmpl_id=p.product_tmpl_id
+                    AND l.bom_id=b.id
+                ),
+                stack (parent_id, comp_id, path) AS (
+                    -- build bom path array using product id
+                    SELECT
+                        j.parent_id,
+                        j.comp_id,
+                        ARRAY[j.comp_id]
+                    FROM j
+                    WHERE j.parent_id NOT IN (SELECT comp_id FROM j)
+                    UNION ALL
+                    SELECT
+                        j.parent_id,
+                        j.comp_id,
+                        path || j.comp_id
+                    FROM stack AS s, j
+                    WHERE j.parent_id=s.comp_id
+                )
+                -- length of longest path is the llc
+                SELECT
+                    p.id as product_id,
+                    COALESCE(MAX(ARRAY_LENGTH(path, 1)), 0) AS llc
+                FROM product_product AS p
+                LEFT JOIN stack AS s ON s.comp_id=p.id
+                GROUP BY p.id
+                ORDER BY llc DESC
+            ) AS t
+            WHERE product_product.id=t.product_id
+        """)
+        self.env['product.product'].invalidate_cache(fnames=['llc'])
 
-        mrp_lowest_llc = llc
-        logger.info('End low level code calculation')
+        self.env.cr.execute("SELECT MAX(llc) FROM product_product")
+        mrp_lowest_llc = self.env.cr.fetchall()[0][0]
+        logger.info("End low level code calculation:  %d levels" % (mrp_lowest_llc, ))
         return mrp_lowest_llc
 
     @api.model

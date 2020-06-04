@@ -26,6 +26,7 @@ class TestMrpMultiLevelCommon(SavepointCase):
         cls.mrp_inventory_obj = cls.env['mrp.inventory']
         cls.mrp_move_obj = cls.env['mrp.move']
         cls.planned_order_obj = cls.env['mrp.planned.order']
+        cls.bom_line_obj = cls.env['mrp.bom.line']
 
         cls.fp_1 = cls.env.ref('mrp_multi_level.product_product_fp_1')
         cls.fp_2 = cls.env.ref('mrp_multi_level.product_product_fp_2')

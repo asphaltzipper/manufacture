@@ -3,7 +3,7 @@
 # License LGPL-3.0 or later (https://www.gnu.org/licenses/lgpl.html).
 
 from odoo.addons.mrp_multi_level.tests.common import TestMrpMultiLevelCommon
-from odoo import fields
+from odoo import fields, exceptions
 
 
 class TestMrpMultiLevel(TestMrpMultiLevelCommon):
@@ -307,3 +307,15 @@ class TestMrpMultiLevel(TestMrpMultiLevelCommon):
         self.assertEqual(len(pp_3_line_1), 1)
         self.assertEqual(pp_3_line_1.demand_qty, 210.0)
         self.assertEqual(pp_3_line_1.to_procure, 210.0)
+
+    def test_multi_level_loop_check(self):
+        """Test the check for multi-level BoM loops"""
+        # Create a loop by making product FP-2 a child of product SF-2
+        self.bom_line_obj.create({
+            'bom_id': self.sf_2.bom_ids[0].id,
+            'product_id': self.fp_2.id,
+            'product_qty': 1.0,
+            # 'product_uom_id': self.fp_2.product_tmpl_id.uom_id.id,
+        })
+        with self.assertRaises(exceptions.UserError):
+            self.mrp_multi_level_wiz._bom_loop_check()
