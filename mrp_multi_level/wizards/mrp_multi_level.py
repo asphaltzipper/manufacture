@@ -189,13 +189,34 @@ class MultiLevelMrp(models.TransientModel):
             for bomline in bom.bom_line_ids:
                 if bomline.product_qty <= 0.00 or \
                         bomline.product_id.type != 'product':
+                    log_msg = 'excluding consumable/service %s  -->  %s' % (
+                        product_mrp_area_id.product_id.default_code or
+                        product_mrp_area_id.product_id.name,
+                        bomline.product_id.default_code or
+                        bomline.product_id.name,
+                    )
+                    logger.info(log_msg)
                     continue
                 if self.with_context(mrp_explosion=True)._exclude_from_mrp(
                         bomline.product_id,
                         product_mrp_area_id.mrp_area_id):
                     # Stop explosion.
+                    log_msg = 'exclude from mrp %s --> %s' % (
+                        product_mrp_area_id.product_id.default_code or
+                        product_mrp_area_id.product_id.name,
+                        bomline.product_id.default_code or
+                        bomline.product_id.name,
+                    )
+                    logger.info(log_msg)
                     continue
                 if bomline._skip_bom_line(product_mrp_area_id.product_id):
+                    log_msg = 'skipping bom line %s  -->  %s' % (
+                        product_mrp_area_id.product_id.default_code or
+                        product_mrp_area_id.product_id.name,
+                        bomline.product_id.default_code or
+                        bomline.product_id.name,
+                    )
+                    logger.info(log_msg)
                     continue
                 # TODO: review: mrp_transit_delay, mrp_inspection_delay
                 mrp_date_demand_2 = mrp_date_demand - timedelta(
