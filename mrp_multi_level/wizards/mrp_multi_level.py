@@ -70,9 +70,7 @@ class MultiLevelMrp(models.TransientModel):
         else:
             order_number = (move.picking_id or move).name
             origin = "mv"
-        mrp_date = date.today()
-        if move.date_expected.date() > date.today():
-            mrp_date = move.date_expected.date()
+        mrp_date = move.date_expected.date()
         return {
             'product_id': move.product_id.id,
             'product_mrp_area_id': product_mrp_area.id,
@@ -151,10 +149,7 @@ class MultiLevelMrp(models.TransientModel):
         if not isinstance(mrp_date, date):
             mrp_date = fields.Date.from_string(mrp_date)
 
-        if mrp_date < date.today():
-            mrp_date_supply = date.today()
-        else:
-            mrp_date_supply = mrp_date
+        mrp_date_supply = mrp_date
 
         calendar = product_mrp_area.mrp_area_id.calendar_id
         if calendar and product_mrp_area.mrp_lead_time:
@@ -175,8 +170,6 @@ class MultiLevelMrp(models.TransientModel):
     ):
         """Explode requirements."""
         mrp_date_demand = mrp_action_date
-        if mrp_date_demand < date.today():
-            mrp_date_demand = date.today()
         if not product_mrp_area_id.product_id.bom_ids:
             return False
         bomcount = 0
@@ -499,9 +492,7 @@ class MultiLevelMrp(models.TransientModel):
     @api.model
     def _prepare_mrp_move_data_from_purchase_order(
             self, poline, product_mrp_area):
-        mrp_date = date.today()
-        if fields.Date.from_string(poline.date_planned) > date.today():
-            mrp_date = fields.Date.from_string(poline.date_planned)
+        mrp_date = fields.Date.from_string(poline.date_planned)
         return {
             'product_id': poline.product_id.id,
             'product_mrp_area_id': product_mrp_area.id,
