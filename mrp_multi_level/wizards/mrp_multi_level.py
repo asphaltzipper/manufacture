@@ -386,7 +386,6 @@ class MultiLevelMrp(models.TransientModel):
                         j.comp_id,
                         ARRAY[j.comp_id]
                     FROM j
-                    WHERE j.parent_id NOT IN (SELECT comp_id FROM j)
                     UNION ALL
                     SELECT
                         j.parent_id,
