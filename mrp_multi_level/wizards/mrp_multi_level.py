@@ -370,12 +370,26 @@ class MultiLevelMrp(models.TransientModel):
         self.env.cr.execute("""
             UPDATE product_product SET llc=t.llc
             FROM (
-                WITH RECURSIVE j AS (
-                    -- get parent-child adjacency list using product id
+                with recursive default_bom as (
+                    -- This auxiliary statement is not recursive, but the recursive
+                    -- keyword must be placed on the first auxiliary statement.
+                    -- Here, we get the default BOM for each product template
+                    --   - active
+                    --   - highest version
+                    --   - lowest sequence
+                    select distinct on (product_tmpl_id) *
+                    from mrp_bom
+                    where active=true
+                    order by product_tmpl_id, version desc, sequence
+                ),
+                j as (
+                    -- Here, we get a parent-child adjacency list using product id.
+                    -- If only template is specified on mrp.bom, the list is
+                    -- expanded with all variant BOMs.
                     SELECT DISTINCT
                         COALESCE(b.product_id,p.id) AS parent_id,
                         l.product_id AS comp_id
-                    FROM mrp_bom_line AS l, mrp_bom AS b, product_product AS p
+                    FROM mrp_bom_line AS l, default_bom AS b, product_product AS p
                     WHERE b.product_tmpl_id=p.product_tmpl_id
                     AND l.bom_id=b.id
                 ),
